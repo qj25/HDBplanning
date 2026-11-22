@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wardrobe planner</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="model.js"></script>
+  <script defer src="drawing.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="title-block">
+      <h1>Wardrobe planner</h1>
+      <p>1821 W × 2600 H × 600 D mm</p>
+    </div>
+    <div class="file-actions">
+      <button id="import-button" type="button">Import JSON</button>
+      <button id="export-button" type="button">Export JSON</button>
+      <button id="print-button" type="button">Print drawings</button>
+      <input id="import-file" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel layout-panel" aria-label="Layout and parts">
+      <section>
+        <h2>Layout</h2>
+        <div class="segments" id="layouts" role="group" aria-label="Column count">
+          <button type="button" data-count="3">3 columns</button>
+          <button type="button" data-count="4">4 columns</button>
+        </div>
+        <div class="stack" id="bays"></div>
+      </section>
+      <section class="parts-section">
+        <h2>Parts</h2>
+        <div class="stack" id="parts"></div>
+      </section>
+      <div class="add-part">
+        <label for="add-type">Add to selected bay</label>
+        <select id="add-type">
+          <option value="shelf">Shelf</option>
+          <option value="divider">Short divider</option>
+          <option value="rail">Clothes rail</option>
+          <option value="rack">Pull-out rack</option>
+        </select>
+        <button class="primary" id="add-button" type="button">Add part</button>
+      </div>
+    </aside>
+
+    <section class="drawing-panel" aria-label="Cabinet drawing">
+      <div class="viewbar">
+        <div class="segments" id="views" role="group" aria-label="Drawing view">
+          <button type="button" data-view="front">Front</button>
+          <button type="button" data-view="side">Side</button>
+          <button type="button" data-view="iso">Isometric</button>
+        </div>
+        <label class="side-control" id="side-control" hidden>
+          Side shown
+          <select id="side-view">
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </label>
+      </div>
+      <div class="drawing-surface">
+        <svg id="drawing" viewBox="0 0 720 630" role="img" aria-label="Dimensioned wardrobe drawing"></svg>
+      </div>
+      <div class="drawing-caption">
+        <span id="drawing-hint">Drag a divider, shelf or rail to reposition it.</span>
+        <span>Dimensions in mm</span>
+      </div>
+    </section>
+
+    <aside class="panel inspector-panel" aria-label="Inspector">
+      <div id="inspector"></div>
+      <p class="status" id="status" role="status" aria-live="polite" hidden></p>
+      <section class="axes-help">
+        <h2>Coordinates</h2>
+        <p>Origin at the bottom-left-front corner.</p>
+        <dl>
+          <div><dt>+X</dt><dd>Right</dd></div>
+          <div><dt>+Y</dt><dd>Up</dd></div>
+          <div><dt>+Z</dt><dd>Toward the back</dd></div>
+        </dl>
+      </section>
+    </aside>
+    <section id="print-sheet" aria-label="Printable drawings" hidden></section>
+  </main>
+  <dialog id="print-preview" aria-labelledby="print-preview-title">
+    <div class="preview-bar">
+      <h2 id="print-preview-title">Print preview</h2>
+      <form method="dialog" class="preview-actions">
+        <button type="submit">Close</button>
+        <button type="button" id="send-print" class="primary">Print</button>
+      </form>
+    </div>
+    <div id="print-preview-content"></div>
+  </dialog>
+</body>
+</html>
