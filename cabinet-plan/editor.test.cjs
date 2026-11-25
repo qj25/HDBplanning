@@ -62,7 +62,7 @@ test('resizing preserves explicit positions and updates automatic spans and the 
   const layout = M.createDocument().layouts[3];
   layout.size = { width: 2000, height: 2800, depth: 700 };
   const shelf = layout.parts.find(part => part.type === 'shelf' && part.bay === 2);
-  assert.deepEqual(M.partBounds(layout, shelf).slice(0, 2), [1214, 2000]);
+  assert.deepEqual(M.partBounds(layout, shelf).slice(0, 2), [1223, 1982]);
   assert.equal(M.rackGeometry(layout.parts.find(part => part.type === 'rack'), 0, layout.size.depth).mountZ, 700);
   assert.equal(M.validateLayout(layout), '');
   layout.size.depth = 500;
@@ -97,4 +97,57 @@ test('outline rejects attached cuts that split the shell and radii that overrun 
     { x: 0, y: 0, z: 0, radius: 600 },
     { x: 1000, y: 0, z: 0, radius: 600 },
   ]).error, /adjacent/);
+});
+
+
+test('full drawings use direct dimensions in all three views and show side bays separately', () => {
+  const { readFileSync } = require('node:fs');
+  const { join } = require('node:path');
+  const { runInNewContext } = require('node:vm');
+  const window = { WardrobeModel: M, WardrobeOutline: require('./outline.js') };
+  runInNewContext(readFileSync(join(__dirname, 'drawing.js'), 'utf8'), { window });
+  const drawing = window.WardrobeDrawing;
+  const layout = M.createDocument().layouts[3];
+  const drawer = M.makePart(layout, 'drawer', 0, 'drawer-check');
+  layout.parts.push(drawer);
+  layout.notch.enabled = true;
+  for (const view of ['front', 'side', 'iso']) {
+    const basic = drawing.render(layout, { view, side: 'left' });
+    const full = drawing.render(layout, { view, side: 'left', full: true, selected: drawer.id });
+    assert.ok(full.split('dimension-label').length > basic.split('dimension-label').length);
+    assert.doesNotMatch(full, /NaN|Infinity|measure-dot|measure-number/);
+    assert.match(full, /class="dimension extension"/);
+    if (view !== 'iso') assert.match(full, /data-drag="resize-/);
+  }
+  const left = drawing.render(layout, { view: 'side', side: 'left', full: true, travel: { [drawer.id]: 0.5 } });
+  const right = drawing.render(layout, { view: 'side', side: 'right', full: true });
+  const bays = left.split('class="side-bay"').slice(1);
+  assert.equal(bays.length, 3);
+  assert.match(bays[0], /drawer-check/);
+  assert.ok(bays.slice(1).every(bay => !bay.includes('drawer-check')));
+  assert.match(bays[0], /notch-face/);
+  assert.ok(bays.slice(1).every(bay => !bay.includes('notch-face')));
+  assert.notEqual(left, right);
+  const a = drawing.frame(layout, { view: 'side', side: 'left' }).project([0, 100, 100]);
+  const b = drawing.frame(layout, { view: 'side', side: 'right' }).project([0, 100, 100]);
+  assert.equal(a[0] + b[0], drawing.SIDE_WIDTH);
+  assert.equal(a[1], b[1]);
+});
+
+test('many side elevations can be rendered in print rows while keeping scale and ordering', () => {
+  const { readFileSync } = require('node:fs');
+  const { join } = require('node:path');
+  const { runInNewContext } = require('node:vm');
+  const window = { WardrobeModel: M, WardrobeOutline: require('./outline.js') };
+  runInNewContext(readFileSync(join(__dirname, 'drawing.js'), 'utf8'), { window });
+  const source = { ...M.createDocument().layouts[3], parts: [] };
+  const { layout } = M.repartition(source, 18);
+  const options = { view: 'side', side: 'right', full: true, interactive: false };
+  const all = window.WardrobeDrawing.render(layout, options);
+  const row = window.WardrobeDrawing.render(layout, { ...options, sideBays: [15, 16, 17] });
+  assert.equal((all.match(/data-side-bay=/g) ?? []).length, 18);
+  assert.equal((row.match(/data-side-bay=/g) ?? []).length, 3);
+  assert.match(row, /data-side-bay="15" transform="translate\(0 0\)"/);
+  assert.match(row, /data-side-bay="17" transform="translate\(720 0\)"/);
+  assert.doesNotMatch(row, /data-drag=/);
 });

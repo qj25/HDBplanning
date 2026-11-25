@@ -32,29 +32,18 @@
     <aside class="panel layout-panel" aria-label="Layout and parts">
       <section>
         <h2>Layout</h2>
-        <div class="segments" id="layouts" role="group" aria-label="Column count">
-        </div>
-        <div class="layout-actions">
-          <button type="button" id="cabinet-button">Cabinet dimensions</button>
-          <button type="button" id="columns-button">Custom columns</button>
-          <button type="button" id="outline-button">Outline</button>
-        </div>
+        <button type="button" id="setup-button" aria-controls="cabinet-setup" aria-expanded="false">Cabinet setup</button>
         <div class="stack" id="bays"></div>
       </section>
       <section class="parts-section">
-        <h2>Parts</h2>
+        <div class="parts-heading">
+          <h2>Parts</h2>
+          <button class="primary" id="add-button" type="button" aria-label="Add part" aria-haspopup="true"
+            aria-controls="parts-menu" aria-expanded="false"><span aria-hidden="true">+</span></button>
+        </div>
         <div class="stack" id="parts"></div>
+        <div id="parts-menu" class="parts-menu" role="group" aria-label="Add part to selected bay" hidden></div>
       </section>
-      <div class="add-part">
-        <label for="add-type">Add to selected bay</label>
-        <select id="add-type">
-          <option value="shelf">Shelf</option>
-          <option value="divider">Short divider</option>
-          <option value="rail">Clothes rail</option>
-          <option value="rack">Pull-out rack</option>
-        </select>
-        <button class="primary" id="add-button" type="button">Add part</button>
-      </div>
     </aside>
 
     <section class="drawing-panel" aria-label="Cabinet drawing">
@@ -80,7 +69,6 @@
       <div class="drawing-surface">
         <svg id="drawing" viewBox="0 0 720 630" role="img" aria-label="Dimensioned wardrobe drawing"></svg>
       </div>
-      <div id="measurement-details" hidden></div>
       <div class="drawing-caption">
         <span id="drawing-hint">Drag a divider, shelf or rail to reposition it.</span>
         <span>Dimensions in mm</span>
@@ -88,6 +76,14 @@
     </section>
 
     <aside class="panel inspector-panel" aria-label="Inspector">
+      <section id="cabinet-setup" aria-label="Cabinet setup" hidden>
+        <div class="segments" id="layouts" role="group" aria-label="Saved layouts"></div>
+        <div class="layout-actions" role="group" aria-label="Cabinet settings">
+          <button type="button" id="cabinet-button">Dimensions</button>
+          <button type="button" id="columns-button">Custom columns</button>
+          <button type="button" id="outline-button">Outline</button>
+        </div>
+      </section>
       <div id="inspector"></div>
       <p class="status" id="status" role="status" aria-live="polite" hidden></p>
       <section class="axes-help">

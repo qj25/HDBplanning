@@ -3,7 +3,7 @@
 
   function movePart(part, dx, dy) {
     const moved = { ...part };
-    if (part.type === 'rack' || part.type === 'divider') moved.x += dx;
+    if (['rack', 'drawer', 'divider'].includes(part.type)) moved.x += dx;
     if (part.type === 'divider') {
       moved.y1 += dy;
       moved.y2 += dy;

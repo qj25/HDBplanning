@@ -11,7 +11,7 @@
   const storageKey = 'wardrobe-planner-v1';
   const viewNames = { front: 'Front elevation', side: 'Side elevation', iso: 'Isometric' };
   const ui = { view: 'front', side: 'left', selected: 'bay-0', bay: 0, travel: Object.create(null),
-    full: false, snap: false };
+    full: false, snap: false, setup: false };
   let plan = M.createDocument();
   let storageAvailable = true;
   let drag = null;
@@ -118,7 +118,6 @@
     const target = selection();
     if (target.kind === 'bay') ui.bay = target.index;
     if (target.kind === 'part' && target.part) ui.bay = target.part.bay;
-    if (target.kind === 'notch' && ui.view === 'side') ui.side = current().notch.side;
     message();
     render();
   }
@@ -156,25 +155,28 @@
     const num = (name, caption, placeholder) => numberField(name, caption, part[name], placeholder);
     let fields = selectField('bay', 'Bay', bayOptions, part.bay, true);
     let note = '';
-    if (part.type === 'rack') {
+    if (M.isBox(part)) {
       const fraction = ui.travel[part.id] ?? 0;
       const distance = Math.round(fraction * part.travel);
       fields += num('x', 'Left edge X') + num('y', 'Bottom edge Y') + num('z', 'Front edge Z') +
-        num('width', 'Width') + num('height', 'Height') + num('depth', 'Sleeve depth') +
+        num('width', 'Width') + num('height', 'Height') + num('depth', part.type === 'rack' ? 'Sleeve depth' : 'Depth') +
         num('travel', 'Maximum travel') +
         '<div class="field wide"><label for="pull-travel">Pull out · <output id="travel-value" for="pull-travel">' +
         distance + ' mm</output></label><input id="pull-travel" type="range" min="0" max="' + part.travel +
         '" value="' + distance + '"></div>';
-      note = 'See the rail travel in Side or Isometric view. The mount stays at Z = ' + M.sizeOf(current()).depth + ' mm.';
+      note = part.type === 'drawer' ? 'Preview the drawer travel in Side or Isometric.' :
+        'See the rail travel in Side or Isometric view. The mount stays at Z = ' + M.sizeOf(current()).depth + ' mm.';
     } else if (part.type === 'divider') {
       fields += num('x', 'X') + num('y1', 'Bottom Y') + num('y2', 'Top Y') +
         num('z1', 'Front Z') + num('z2', 'Back Z');
     } else {
       const [left, right] = M.partBounds(current(), { ...part, x1: null, x2: null });
-      fields += num('x1', 'Start X', String(left) + ' (bay edge)') +
-        num('x2', 'End X', String(right) + ' (bay edge)') + num('y', 'Height Y');
+      const endpoint = (key, caption, bound) => numberField(key, caption, part[key + 'Anchor'] ? null : part[key],
+        Number(bound.toFixed(1)) + (part[key + 'Anchor'] ? ' (attached)' : ' (bay edge)'));
+      fields += endpoint('x1', 'Start X', left) + endpoint('x2', 'End X', right) + num('y', 'Height Y');
       fields += part.type === 'shelf' ? num('z1', 'Front Z') + num('z2', 'Back Z') : num('z', 'Depth Z');
-      note = 'Leave an X endpoint blank to follow that bay edge.';
+      note = part.x1Anchor || part.x2Anchor ? 'Type an X coordinate to release a rail attachment.' :
+        'Leave an X endpoint blank to follow that bay edge.';
     }
     return inspector(M.TYPES[part.type], 'Positions and dimensions in mm', fields, note, true);
   }
@@ -183,6 +185,13 @@
     const { kind, index, part, feature, radius, key } = selection();
     const layout = current();
     const size = M.sizeOf(layout);
+    const thickness = M.thicknessOf(layout);
+    $('cabinet-setup').hidden = !ui.setup;
+    $('setup-button').setAttribute('aria-expanded', String(ui.setup));
+    $('cabinet-button').setAttribute('aria-pressed', String(kind === 'cabinet'));
+    $('columns-button').setAttribute('aria-pressed', String(kind === 'columns'));
+    $('outline-button').setAttribute('aria-pressed', String(['outline', 'notch', 'feature', 'radius',
+      'outline-new', 'radius-new'].includes(kind)));
     let markup;
     if (kind === 'bay') {
       const [left, right] = M.bayBounds(layout, index);
@@ -205,7 +214,10 @@
     } else if (kind === 'cabinet') {
       markup = inspector('Cabinet dimensions', 'Nominal size in mm',
         numberField('width', 'Width', size.width) + numberField('height', 'Height', size.height) +
-        numberField('depth', 'Depth', size.depth));
+        numberField('depth', 'Depth', size.depth) +
+        numberField('internalThickness', 'Internal boards', thickness.internal) +
+        numberField('edgeThickness', 'Cabinet edge boards', thickness.edge),
+        'Board thickness uses space inside the cabinet outline.');
     } else if (kind === 'callout') {
       markup = inspector('Dimension callout', key.replace('-', ' '),
         numberField('offset', 'Drawing offset', layout.callouts?.[key] ?? Drawing.callouts[key]) +
@@ -224,14 +236,20 @@
         '<div class="field wide"><label for="column-positions">Divider X positions (optional)</label>' +
         '<input id="column-positions" name="positions" placeholder="' + esc(layout.dividers.join(', ')) + '"></div>' +
         boxField('accept', 'Accept changes to automatic shelf and rail spans', false) +
-        '<button type="button" data-action="preview-columns">Preview columns</button>',
+        '<button type="button" data-action="preview-columns">Preview columns</button>' +
+        '<button type="button" data-action="update-columns">Set current divider positions</button>',
         'Leave positions empty for equal widths. Current widths are ' + widths.join(', ') + ' mm.' +
         (widths.some(width => width < 100) ? ' This imported layout has a column under 100 mm.' : ''));
     } else if (kind === 'outline') {
       markup = '<div class="inspector-header"><h2>Outline</h2><p>Add or select a cut, extension, or radius.</p></div>' +
         '<div class="inspector-actions"><button type="button" data-action="cut">Cut in</button>' +
         '<button type="button" data-action="extend">Extend out</button>' +
-        '<button type="button" data-action="round">Round corner</button></div>';
+        '<button type="button" data-action="round">Round corner</button></div><div class="stack outline-list">' +
+        row('notch', 'Side notch', layout.notch.enabled ? layout.notch.side : 'Off') +
+        (layout.features ?? []).map((feature, i) => row('outline-' + feature.id,
+          (feature.kind === 'cut' ? 'Cut in ' : 'Extension ') + (i + 1), feature.offset + ' mm')).join('') +
+        (layout.radii ?? []).map(radius => row('radius-' + radius.id, 'Corner radius', 'R' + radius.radius)).join('') +
+        '</div>';
     } else if (kind === 'feature' || kind === 'outline-new') {
       const item = feature ?? ui.outlineDraft;
       const edits = M.shapeEdits(layout);
@@ -289,13 +307,7 @@
     const openBays = new Set([...$('parts').querySelectorAll('details[open]')].map(el => el.dataset.group));
     $('bays').innerHTML = layout.bays.map((bay, i) =>
       row('bay-' + i, bay.name || 'Bay ' + (i + 1), M.OWNERS[bay.owner])).join('');
-    const fixtures = layout.dividers.map((x, index) =>
-      row('main-' + index, 'Main divider ' + (index + 1), 'X ' + x)).join('') +
-      row('notch', 'Side notch', layout.notch.enabled ? layout.notch.side : 'Off') +
-      (layout.features ?? []).map((feature, index) => row('outline-' + feature.id,
-        (feature.kind === 'cut' ? 'Cut in ' : 'Extension ') + (index + 1), feature.offset + ' mm')).join('') +
-      (layout.radii ?? []).map(radius => row('radius-' + radius.id, 'Corner radius', 'R' + radius.radius)).join('');
-    $('parts').innerHTML = fixtures + layout.bays.map((bay, i) => {
+    $('parts').innerHTML = layout.bays.map((bay, i) => {
       const parts = layout.parts.filter(part => part.bay === i);
       if (!parts.length) return '';
       const open = i === ui.bay || openBays.has(String(i));
@@ -316,34 +328,35 @@
       button.setAttribute('aria-pressed', button.dataset.layout === String(plan.active));
     }
     const { width, height, depth } = M.sizeOf(layout);
-    $('cabinet-summary').textContent = width + ' W × ' + height + ' H × ' + depth + ' D mm';
-    $('add-type').previousElementSibling.textContent = 'Add to ' + (layout.bays[ui.bay].name || 'Bay ' + (ui.bay + 1));
+    $('cabinet-summary').textContent = width + ' W × ' + height + ' H × ' + depth + ' D mm · ' +
+      layout.bays.length + ' columns';
+    const bayName = layout.bays[ui.bay].name || 'Bay ' + (ui.bay + 1);
+    $('add-button').setAttribute('aria-label', 'Add part to ' + bayName);
+    $('add-button').title = 'Add part to ' + bayName;
+    $('parts-menu').setAttribute('aria-label', 'Add part to ' + bayName);
   }
 
   function renderDrawing() {
     const layout = drag?.preview ?? ui.preview ?? current();
     drawing.innerHTML = Drawing.render(layout, { ...ui, projection: drag?.frame, guide: drag?.guide });
     drawing.setAttribute('aria-label', viewNames[ui.view] + ', ' + layout.bays.length + '-column wardrobe');
+    const side = ui.view === 'side';
+    drawing.classList.toggle('side-drawing', side);
+    drawing.style.setProperty('--side-width', side ? layout.bays.length * Drawing.SIDE_WIDTH + 'px' : '');
+    drawing.style.setProperty('--side-min-width', side ? layout.bays.length * 275 + 'px' : '');
+    const surface = drawing.parentElement;
+    surface.classList.toggle('side-surface', side);
+    if (!side) surface.scrollLeft = 0;
     drawing.setAttribute('viewBox', drag?.viewBox ?? drawingViewBox(layout, ui.view));
-    $('measurement-details').hidden = !ui.full || ui.view === 'iso';
-    if (ui.full && ui.view !== 'iso') $('measurement-details').innerHTML = measurementTable(layout, ui.view);
   }
 
-  function drawingViewBox(layout, view) {
+  function drawingViewBox(layout, view, count = layout.bays.length) {
     const offsets = layout.callouts ?? {};
     const used = view === 'front' ? ['front-width', 'front-height'] : view === 'side' ? ['side-depth', 'side-height'] : [];
     const largest = Math.max(0, ...used.map(id => Math.abs(offsets[id] ?? 0)));
     const padding = Math.max(0, largest - 40);
-    return [-padding, -padding, 720 + padding * 2, 630 + padding * 2].join(' ');
-  }
-
-  function measurementTable(layout, view) {
-    const records = Drawing.measurementRecords(layout, view);
-    if (!records.length) return '';
-    return '<table class="measurements"><caption>Feature dimensions (mm)</caption><thead><tr><th scope="col">#</th>' +
-      '<th scope="col">Feature</th><th scope="col">Measurements</th></tr></thead><tbody>' +
-      records.map((record, i) => '<tr><td>' + (i + 1) + '</td><th scope="row">' + esc(record.title) +
-        '</th><td>' + esc(record.value) + '</td></tr>').join('') + '</tbody></table>';
+    const width = view === 'side' ? Drawing.SIDE_WIDTH * count : 720;
+    return [-padding, -padding, width + padding * 2, 630 + padding * 2].join(' ');
   }
 
   function render() {
@@ -361,8 +374,8 @@
     $('side-control').hidden = ui.view !== 'side';
     $('side-view').value = ui.side;
     $('drawing-hint').textContent = {
-      front: 'Drag a part or set its exact position in the inspector.',
-      side: 'Use the pull-out rack inspector to see the rail travel.',
+      front: 'Select a part and drag its square handles to resize it.',
+      side: 'Select a part to resize it. Preview pull-out travel in the inspector.',
       iso: 'Select a part to see its position and dimensions.',
     }[ui.view];
   }
@@ -388,10 +401,23 @@
     return 'radius-' + radius.id;
   }
 
-  function applyColumns(data, preview = false) {
+  function applyColumns(data, preview = false, update = false) {
     const count = Number(data.get('count'));
     const typed = data.get('positions').trim();
     const positions = typed ? typed.split(',').map(value => value.trim() ? Number(value) : NaN) : undefined;
+    if (update) {
+      const original = current();
+      if (count !== original.bays.length || !positions || positions.length !== count - 1) {
+        message('Enter an X position for each existing divider, or use Apply to create a new column layout.', true);
+        return;
+      }
+      const layout = { ...original, dividers: positions };
+      delete layout.legacyPartition;
+      ui.preview = null;
+      if (commit(layout, 'Divider positions updated.')) render();
+      else renderDrawing();
+      return;
+    }
     const result = M.repartition(current(), count, data.has('accept'), positions);
     ui.preview = null;
     if (preview && result.preview) {
@@ -443,6 +469,7 @@
         height: numeric('height'), width: numeric('width'), depth: numeric('depth') };
     } else if (kind === 'cabinet') {
       layout.size = { width: numeric('width'), height: numeric('height'), depth: numeric('depth') };
+      layout.thickness = { internal: numeric('internalThickness'), edge: numeric('edgeThickness') };
       if (layout.size.width !== M.sizeOf(current()).width) delete layout.legacyPartition;
     } else if (kind === 'callout') {
       layout.callouts = { ...layout.callouts, [key]: numeric('offset') };
@@ -453,13 +480,23 @@
       for (const name of Object.keys(part)) {
         if (name !== 'id' && name !== 'type' && name !== 'bay' && data.has(name)) edited[name] = numeric(name);
       }
-      if (part.type === 'rack' && edited.bay !== part.bay && edited.x === part.x) {
-        const [oldLeft] = M.bayBounds(layout, part.bay);
-        const [left, right] = M.bayBounds(layout, edited.bay);
-        edited.x = Math.max(left, Math.min(right - edited.width, left + part.x - oldLeft));
+      if (part.type === 'rail') {
+        for (const endpoint of ['x1', 'x2']) {
+          edited[endpoint] = numeric(endpoint);
+          if (edited[endpoint] !== null || edited.bay !== part.bay) delete edited[endpoint + 'Anchor'];
+        }
+      }
+      if (M.isBox(part) && edited.bay !== part.bay && edited.x === part.x) {
+        const { edge } = M.thicknessOf(layout);
+        const [oldLeft] = M.clearBay(layout, part.bay);
+        const [a, b] = M.clearBay(layout, edited.bay);
+        const left = Math.ceil(a + (edited.bay ? 0 : edge));
+        const right = Math.floor(b - (edited.bay === layout.dividers.length ? edge : 0));
+        edited.x = Math.round(Math.max(left, Math.min(right - edited.width, left + part.x - oldLeft)));
       }
       layout.parts[layout.parts.findIndex(item => item.id === part.id)] = edited;
     }
+    M.releaseRailAnchors(layout, current());
     if (commit(layout, 'Layout updated.')) {
       if (kind === 'part') ui.bay = numeric('bay');
       if (kind === 'notch') ui.side = layout.notch.side;
@@ -482,9 +519,9 @@
       renderDrawing();
     }
     if (event.target.id !== 'pull-travel') return;
-    const rack = selection().part;
+    const part = selection().part;
     const distance = Number(event.target.value);
-    ui.travel[rack.id] = distance / rack.travel;
+    ui.travel[part.id] = distance / part.travel;
     $('travel-value').textContent = distance + ' mm';
     if (ui.view === 'front') {
       ui.view = 'side';
@@ -499,6 +536,11 @@
     }
   });
   $('inspector').addEventListener('click', event => {
+    const item = event.target.closest('[data-row]');
+    if (item) {
+      choose(item.dataset.row);
+      return;
+    }
     const action = event.target.dataset.action;
     if (action) {
       const layout = structuredClone(current());
@@ -529,17 +571,19 @@
         ui.preview = error ? null : layout;
         message(error || 'Outline preview. Select Apply to keep it.', Boolean(error));
         renderDrawing();
-      } else if (action === 'preview-columns' && event.target.form.reportValidity()) {
-        applyColumns(new FormData(event.target.form), true);
+      } else if (['preview-columns', 'update-columns'].includes(action) && event.target.form.reportValidity()) {
+        applyColumns(new FormData(event.target.form), action === 'preview-columns', action === 'update-columns');
       }
       return;
     }
     if (!event.target.matches('[data-remove]')) return;
     const layout = structuredClone(current());
     layout.parts = layout.parts.filter(part => part.id !== ui.selected);
-    commit(layout);
-    choose('bay-' + ui.bay);
-    $('bays').querySelector('[aria-pressed="true"]').focus();
+    M.releaseRailAnchors(layout, current());
+    if (commit(layout)) {
+      choose('bay-' + ui.bay);
+      $('bays').querySelector('[aria-pressed="true"]').focus();
+    }
   });
 
   for (const container of [$('bays'), $('parts')]) {
@@ -563,6 +607,11 @@
     save();
     render();
   });
+  $('setup-button').addEventListener('click', () => {
+    ui.setup = !ui.setup;
+    choose(ui.setup ? 'cabinet' : 'bay-' + ui.bay);
+    if (ui.setup && window.innerWidth <= 760) $('cabinet-setup').scrollIntoView({ block: 'nearest' });
+  });
   $('cabinet-button').addEventListener('click', () => choose('cabinet'));
   $('columns-button').addEventListener('click', () => choose('columns'));
   $('outline-button').addEventListener('click', () => choose('outline'));
@@ -577,8 +626,9 @@
     drawing.classList.toggle('custom-pointer', event.target.checked);
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && drag) {
-      cancelDrag();
+    if (event.key === 'Escape') {
+      if (drag) cancelDrag();
+      else if (!$('parts-menu').hidden) closePartsMenu(true);
       return;
     }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || $('print-preview').open ||
@@ -599,15 +649,59 @@
     renderDrawing();
   });
 
-  $('add-button').addEventListener('click', () => {
+  const partIcons = {
+    shelf: '<path d="M3 9h14l3 3H6zM6 12v3h14v-3M3 9v3l3 3"/>',
+    divider: '<path d="M8 4h6l3 3v13l-3-3H8zM14 4v13"/>',
+    rail: '<path d="M4 7v6m16-6v6M4 10h16M9 10v6m6-6v6"/>',
+    rack: '<path d="M3 5h18v13H3zM7 9h10m-8 0v6m3-6v6m3-6v6"/>',
+    drawer: '<path d="M3 7l4-3h15l-4 3v13H3zM18 7l4-3v13l-4 3M8 12h5"/>',
+  };
+  $('parts-menu').innerHTML = Object.entries(M.TYPES).map(([type, name]) => '<button type="button" data-type="' +
+    type + '"><svg aria-hidden="true" viewBox="0 0 24 24">' + partIcons[type] + '</svg>' + name + '</button>').join('');
+
+  function closePartsMenu(focus = false) {
+    $('parts-menu').hidden = true;
+    $('add-button').setAttribute('aria-expanded', 'false');
+    if (focus) $('add-button').focus();
+  }
+
+  $('add-button').addEventListener('click', event => {
+    const menu = $('parts-menu');
+    if (!menu.hidden) return closePartsMenu(true);
+    const button = event.currentTarget.getBoundingClientRect();
+    const x = event.detail ? event.clientX : button.left;
+    const y = event.detail ? event.clientY : button.bottom;
+    menu.hidden = false;
+    event.currentTarget.setAttribute('aria-expanded', 'true');
+    menu.style.left = Math.max(6, Math.min(x, window.innerWidth - menu.offsetWidth - 6)) + 'px';
+    menu.style.top = Math.max(6, Math.min(y, window.innerHeight - menu.offsetHeight - 6)) + 'px';
+    menu.querySelector('button').focus();
+  });
+  document.addEventListener('pointerdown', event => {
+    if (!$('parts-menu').hidden && !event.target.closest('#parts-menu, #add-button')) closePartsMenu();
+  });
+  $('parts-menu').addEventListener('keydown', event => {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...event.currentTarget.querySelectorAll('button')];
+    const index = buttons.indexOf(document.activeElement);
+    buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+      (index + buttons.length + (event.key === 'ArrowDown' ? 1 : -1)) % buttons.length].focus();
+  });
+  $('parts-menu').addEventListener('click', event => {
+    const type = event.target.closest('[data-type]')?.dataset.type;
+    if (!type) return;
+    closePartsMenu(true);
+    if (drag) cancelDrag();
     const layout = structuredClone(current());
-    const type = $('add-type').value;
     const id = 'part-' + newId();
     const part = M.makePart(layout, type, ui.bay, id);
     layout.parts.push(part);
     if (layout.notch.enabled && M.validateLayout(layout)) {
       const [, , bottom, top] = M.partBounds(layout, part);
-      const offsets = [layout.notch.y - top, layout.notch.y + layout.notch.height - bottom]
+      const edge = M.thicknessOf(layout).edge;
+      const offsets = [Math.floor(layout.notch.y - edge - top), Math.ceil(layout.notch.y + layout.notch.height + edge - bottom)]
         .sort((a, b) => Math.abs(a) - Math.abs(b));
       for (const offset of offsets) {
         layout.parts[layout.parts.length - 1] = type === 'divider' ?
@@ -626,7 +720,29 @@
       .matrixTransform(drag?.inverse ?? drawing.getScreenCTM().inverse());
   }
 
-  function movedLayout(original, target, axis, dx, dy, screenDelta) {
+  function resizePart(layout, part, axis, dx, dy, dz) {
+    const edited = { ...part };
+    const bounds = M.partBounds(layout, part);
+    for (const handle of axis.slice(7).split('-')) {
+      const index = ['x1', 'x2', 'y1', 'y2', 'z1', 'z2'].indexOf(handle);
+      const direction = handle[0];
+      const delta = { x: dx, y: dy, z: dz }[direction];
+      if (!delta) continue;
+      const coordinate = Math.round(bounds[index] + delta);
+      if (M.isBox(part)) {
+        const start = handle.endsWith('1');
+        const dimension = { x: 'width', y: 'height', z: 'depth' }[direction];
+        if (start) edited[direction] = coordinate;
+        edited[dimension] = part[dimension] + (start ? -delta : delta);
+      } else {
+        edited[handle] = coordinate;
+        delete edited[handle + 'Anchor'];
+      }
+    }
+    return edited;
+  }
+
+  function movedLayout(original, target, axis, dx, dy, screenDelta, dz = 0) {
     const layout = structuredClone(original);
     const { kind, index, part, feature, key } = target;
     if (kind === 'main') {
@@ -648,14 +764,17 @@
         item[axis === 'feature-start' ? 'start' : 'end'] += vertical ? dy : dx;
       }
     } else if (part) {
-      const moved = Move.movePart(part, axis === 'y' ? 0 : dx, axis === 'x' ? 0 : dy);
-      if (dx && ['divider', 'rack'].includes(part.type)) {
+      const resizing = axis.startsWith('resize-');
+      const moved = resizing ? resizePart(original, part, axis, dx, dy, dz) :
+        Move.movePart(part, axis === 'y' ? 0 : dx, axis === 'x' ? 0 : dy);
+      if (!resizing && dx && (part.type === 'divider' || M.isBox(part))) {
         const center = moved.x + (moved.width ?? 0) / 2;
         const next = layout.dividers.findIndex(x => center < x);
         moved.bay = next < 0 ? layout.bays.length - 1 : next;
       }
       layout.parts[layout.parts.findIndex(item => item.id === part.id)] = moved;
     }
+    M.releaseRailAnchors(layout, original);
     return layout;
   }
 
@@ -665,21 +784,22 @@
     const add = (axis, value, edge, id) => candidates.push({
       axis, value, delta: Math.round(value - edge), id,
     });
-    if (part.type === 'rack') {
+    if (M.isBox(part)) {
       const geometry = M.outlineGeometry(layout);
+      const { edge, internal } = M.thicknessOf(layout);
       for (const [i, [x1, x2]] of geometry.slices((c + d) / 2, e, f).entries()) {
-        if (Number.isInteger(x1)) add('x', x1, a, 'wall-left-' + i);
-        if (Number.isInteger(x2)) add('x', x2, b, 'wall-right-' + i);
+        if (Number.isInteger(x1)) add('x', x1 + edge, a, 'wall-left-' + i);
+        if (Number.isInteger(x2)) add('x', x2 - edge, b, 'wall-right-' + i);
       }
       for (const [i, wall] of layout.dividers.entries()) {
-        add('x', wall, a, 'divider-' + i + '-left');
-        add('x', wall, b, 'divider-' + i + '-right');
+        add('x', wall + internal / 2, a, 'divider-' + i + '-left');
+        add('x', wall - internal / 2, b, 'divider-' + i + '-right');
       }
       const walls = geometry.sections.filter(section => section.z1 < f && section.z2 > e)
         .flatMap(section => section.segments.filter(([start, end]) => start[1] === end[1] &&
           Math.min(start[0], end[0]) < b && Math.max(start[0], end[0]) > a));
       for (const [i, [start, end]] of walls.entries()) {
-        add('y', start[1], end[0] > start[0] ? c : d, 'wall-y-' + i);
+        add('y', start[1] + (end[0] > start[0] ? edge : -edge), end[0] > start[0] ? c : d, 'wall-y-' + i);
       }
     } else if (part.type === 'shelf' || part.type === 'rail') {
       for (const neighbour of layout.parts) {
@@ -718,9 +838,23 @@
     const screenDelta = drag.axis === 'callout-x' ? point.x - drag.start.x : point.y - drag.start.y;
     if (!drag.started && Math.hypot(point.x - drag.start.x, point.y - drag.start.y) < drag.threshold) return;
     drag.started = true;
-    let layout = movedLayout(drag.original, drag.target, drag.axis, dx, dy, screenDelta);
+    const dz = ui.view === 'side' ? dx * drag.frame.depthDirection : 0;
+    let layout = movedLayout(drag.original, drag.target, drag.axis, dx, dy, screenDelta, dz);
     drag.guide = null;
-    if (ui.snap && drag.target.part && (dx || dy)) {
+    const resizing = drag.axis.startsWith('resize-');
+    if (resizing && drag.target.part?.type === 'rail' && dx) {
+      const rail = layout.parts.find(part => part.id === drag.target.part.id);
+      const endpoint = drag.axis.slice(7);
+      const candidates = M.railSupports(layout, rail, endpoint).map(support => ({
+        ...support, id: support.anchor, axis: 'x', value: support.x, delta: support.x - rail[endpoint],
+      }));
+      drag.guide = Move.nearestSnap(candidates, 'x', drag.tolerance, candidate => {
+        rail[endpoint + 'Anchor'] = candidate.anchor;
+        if (!M.validateLayout(layout)) return true;
+        delete rail[endpoint + 'Anchor'];
+        return false;
+      });
+    } else if (!resizing && ui.snap && drag.target.part && (dx || dy)) {
       const moved = layout.parts.find(part => part.id === drag.target.part.id);
       const snap = Move.nearestSnap(snapCandidates(layout, moved), drag.axis, drag.tolerance, candidate => {
         const snapped = movedLayout(drag.original, drag.target, drag.axis,
@@ -794,23 +928,32 @@
     }
   });
 
-  function preparePrint(full) {
+  function preparePrint(full, target = 'print-sheet') {
     const layout = plan.layouts[plan.active];
-    const side = layout.notch.enabled && !M.hasCustomOutline(layout) ? layout.notch.side : ui.side;
+    const side = ui.side;
     const description = layout.notch.enabled ? ' · ' + layout.notch.side + ' notch' : '';
     const { width, height, depth } = M.sizeOf(layout);
-    $('print-sheet').innerHTML = '<h1>Wardrobe plan</h1><p>' + layout.bays.length +
+    function figure(view, title, sideBays) {
+      const viewBox = drawingViewBox(layout, view, sideBays?.length);
+      return '<figure><figcaption>' + esc(title) + '</figcaption><svg viewBox="' + viewBox +
+        '" role="img" aria-label="' + esc(title) + '">' +
+        Drawing.render(layout, { view, side, travel: ui.travel, interactive: false, full, sideBays, sheet: target }) + '</svg></figure>';
+    }
+    const sideRows = [];
+    for (let i = 0; i < layout.bays.length; i += 3) {
+      const bays = layout.bays.slice(i, i + 3).map((_, index) => i + index);
+      sideRows.push(figure('side', viewNames.side + ' · ' + side + ' · ' +
+        (bays.length === 1 ? 'Bay ' + (i + 1) : 'Bays ' + (i + 1) + '–' + (i + bays.length)),
+        bays.length === 3 ? bays : [...bays, ...Array(3 - bays.length).fill(null)]));
+    }
+    $(target).innerHTML = '<h1>Wardrobe plan</h1><p>' + layout.bays.length +
       ' columns · ' + width + ' W × ' + height + ' H × ' + depth + ' D mm nominal' + description + '</p>' +
-      '<p>Origin at bottom-left-front. +X right, +Y up, +Z toward the back.</p>' +
-      '<div class="print-drawings' + (full ? ' full-print' : '') + '">' + Object.entries(viewNames).map(([view, title]) =>
-        '<section class="print-view"><figure><figcaption>' + title + (view === 'side' ? ' · ' + side : '') +
-        '</figcaption><svg viewBox="' + drawingViewBox(layout, view) + '" role="img" aria-label="' + title + '">' +
-        Drawing.render(layout, { view, side, travel: ui.travel, interactive: false, full }) +
-        '</svg></figure>' + (full ? measurementTable(layout, view) : '') + '</section>').join('') + '</div>';
+      '<div class="print-drawings' + (full ? ' full-print' : '') + '"><section class="print-view">' +
+      figure('front', viewNames.front) + '</section><section class="print-view side-print">' +
+      sideRows.join('') + '</section><section class="print-view">' + figure('iso', viewNames.iso) + '</section></div>';
   }
   function refreshPrintPreview() {
-    preparePrint($('print-measurements').checked);
-    $('print-preview-content').innerHTML = $('print-sheet').innerHTML;
+    preparePrint($('print-measurements').checked, 'print-preview-content');
   }
   $('print-button').addEventListener('click', () => {
     $('print-measurements').checked = ui.full;
