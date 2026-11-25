@@ -184,6 +184,32 @@ h2 { font-size: 1rem; letter-spacing: -.01em; margin-bottom: 9px; }
 [data-select] { cursor: pointer; }
 [data-drag="x"] { cursor: ew-resize; }
 [data-drag="y"] { cursor: ns-resize; }
+[data-drag="xy"] { cursor: move; }
+[data-drag="callout-x"] { cursor: ew-resize; }
+[data-drag="callout-y"] { cursor: ns-resize; }
+[data-drag^="feature-"] { cursor: move; }
+
+.layout-actions, .drawing-options { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.layout-actions { margin: 10px 0; }
+.drawing-options { padding: 0 2px 9px; font-size: .86rem; }
+.drawing-options label, .preview-actions label { display: inline-flex; align-items: center; gap: 5px; }
+#layouts { flex-wrap: wrap; }
+#drawing.custom-pointer { cursor: url("cursor.svg") 12 12, crosshair; }
+.measure-leader { stroke: #63746a; stroke-width: 1; pointer-events: none; }
+.measure-dot { fill: #fff; stroke: #3b6657; pointer-events: none; }
+.measure-number, .move-label { text-anchor: middle; font: 600 9px system-ui; fill: #21332f; pointer-events: none; }
+.move-handle circle, .outline-handle { fill: #fff; stroke: #4c796a; stroke-width: 2; }
+.move-axis, .snap-guide { fill: none; stroke-width: 1.8; pointer-events: none; }
+.move-x { stroke: #af4536; }
+.move-y { stroke: #246b55; }
+.snap-guide { stroke: #326f9a; stroke-dasharray: 5 4; }
+.outline-preview { fill: #326f9a20; stroke: #326f9a; stroke-dasharray: 4 4; pointer-events: none; }
+.profile-edge { stroke: #687e74; fill: none; stroke-width: 1; }
+.depth-edge { stroke-dasharray: 4 3; }
+.measurements { width: 100%; margin: 8px 0 16px; border-collapse: collapse; font-size: .84rem; }
+.measurements caption { text-align: left; font-weight: 700; margin-bottom: 4px; }
+.measurements :is(td, th) { border-bottom: 1px solid #bfcac2; padding: 4px 7px; text-align: left; }
+.measurements th[scope="row"] { font-weight: 500; }
 
 #print-preview {
   width: min(1060px, calc(100% - 24px));
@@ -212,6 +238,7 @@ h2 { font-size: 1rem; letter-spacing: -.01em; margin-bottom: 9px; }
 .print-drawings figure { margin: 0; break-inside: avoid; }
 .print-drawings figcaption { font-weight: 700; }
 .print-drawings svg { display: block; width: 100%; }
+.full-print { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: minmax(150px, 172px) minmax(0, 1fr) minmax(205px, 225px); }
@@ -241,6 +268,12 @@ h2 { font-size: 1rem; letter-spacing: -.01em; margin-bottom: 9px; }
   #print-sheet p { font-size: 9pt; margin-bottom: 2mm; }
   .print-drawings { gap: 2mm; }
   .print-drawings figcaption { font-weight: 700; font-size: 9pt; }
+  .full-print .print-view + .print-view { break-before: page; }
+  .full-print { display: block; }
+  .full-print svg { height: 132mm; }
+  .measurements { font-size: 9pt; }
+  .measurements :is(td, th) { padding: 2px 5px; }
+  .measurements tr { break-inside: avoid; }
   .dimension-label, .bay-label, .axis-label, .drawing-label { stroke: white; }
   .bay-fill { display: none; }
 }

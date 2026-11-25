@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wardrobe planner</title>
   <link rel="stylesheet" href="style.css">
+  <script defer src="outline.js"></script>
   <script defer src="model.js"></script>
+  <script defer src="history.js"></script>
+  <script defer src="movement.js"></script>
   <script defer src="drawing.js"></script>
   <script defer src="app.js"></script>
 </head>
@@ -13,9 +16,11 @@
   <header class="masthead">
     <div class="title-block">
       <h1>Wardrobe planner</h1>
-      <p>1821 W × 2600 H × 600 D mm</p>
+      <p id="cabinet-summary"></p>
     </div>
     <div class="file-actions">
+      <button id="undo" type="button" title="Undo (Ctrl or Command+Z)" disabled>Undo</button>
+      <button id="redo" type="button" title="Redo (Ctrl or Command+Shift+Z)" disabled>Redo</button>
       <button id="import-button" type="button">Import JSON</button>
       <button id="export-button" type="button">Export JSON</button>
       <button id="print-button" type="button">Print drawings</button>
@@ -28,8 +33,11 @@
       <section>
         <h2>Layout</h2>
         <div class="segments" id="layouts" role="group" aria-label="Column count">
-          <button type="button" data-count="3">3 columns</button>
-          <button type="button" data-count="4">4 columns</button>
+        </div>
+        <div class="layout-actions">
+          <button type="button" id="cabinet-button">Cabinet dimensions</button>
+          <button type="button" id="columns-button">Custom columns</button>
+          <button type="button" id="outline-button">Outline</button>
         </div>
         <div class="stack" id="bays"></div>
       </section>
@@ -64,9 +72,15 @@
           </select>
         </label>
       </div>
+      <div class="drawing-options">
+        <label><input type="checkbox" id="full-measurements"> Full measurements</label>
+        <label><input type="checkbox" id="snap"> Snap while dragging</label>
+        <label><input type="checkbox" id="custom-pointer"> Custom pointer</label>
+      </div>
       <div class="drawing-surface">
         <svg id="drawing" viewBox="0 0 720 630" role="img" aria-label="Dimensioned wardrobe drawing"></svg>
       </div>
+      <div id="measurement-details" hidden></div>
       <div class="drawing-caption">
         <span id="drawing-hint">Drag a divider, shelf or rail to reposition it.</span>
         <span>Dimensions in mm</span>
@@ -92,6 +106,7 @@
     <div class="preview-bar">
       <h2 id="print-preview-title">Print preview</h2>
       <form method="dialog" class="preview-actions">
+        <label><input type="checkbox" id="print-measurements"> Full measurements</label>
         <button type="submit">Close</button>
         <button type="button" id="send-print" class="primary">Print</button>
       </form>
